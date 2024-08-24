@@ -1,6 +1,6 @@
 {
   "name": "mina-fungible-token",
-  "version": "0.0.0-local",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "type": "module",
   "main": "target/index.js",
@@ -13,7 +13,7 @@
     "check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "o1js": "https://pkg.pr.new/o1-labs/o1js@8d95222"
+    "o1js": "^1.6.0"
   },
   "devDependencies": {
     "ts-node": "^10.9.2",
