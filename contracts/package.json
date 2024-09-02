@@ -4,7 +4,6 @@
   "license": "Apache-2.0",
   "type": "module",
   "main": "target/index.js",
-  "types": "target/index.d.ts",
   "repository": "github:MinaFoundation/mina-fungible-token",
   "scripts": {
     "task": "node --enable-source-maps --no-warnings= --loader ts-node/esm",

@@ -16,7 +16,7 @@
     "noImplicitAny": true,
     "noImplicitReturns": true,
     "noImplicitThis": true,
-    "noUncheckedIndexedAccess": true,
+    "noUncheckedIndexedAccess": false,
     "outDir": "target",
     "resolveJsonModule": true,
     "skipLibCheck": true,
