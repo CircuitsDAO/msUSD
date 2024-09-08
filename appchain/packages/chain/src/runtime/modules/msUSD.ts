@@ -235,11 +235,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
 
   @runtimeMethod() public async getStablePrice(): Promise<UInt224> {
     const totalCollateralValueUsd = await this.getTotalCollateralValueUsd();
-    if (
-      (await this.stableSupply.get()).value.value
-        .equals(Field.from(0))
-        .toBoolean()
-    ) {
+    if ((await this.stableSupply.get()).value.value.equals(Field.from(0))) {
       return UInt224.from(1e18); // Return 1, scaled to 1e18
     }
     const scaleFactor = UInt224.from(1e18);
@@ -284,14 +280,14 @@ export class msUSD extends RuntimeModule<StableConfig> {
   /// UNLOCKS - THE PRICE COMES BACK TO BELOW $1.01 OR ABOVE $0.99
 
   @runtimeMethod() private async unlockSystem(): Promise<void> {
-    if ((await this.systemLocked.get()).value.toBoolean()) {
+    if ((await this.systemLocked.get()).value) {
       this.systemLocked.set(Bool(false));
     }
     this.systemLocked.set(Bool(false));
   }
 
   @runtimeMethod() private async lockSystem(): Promise<void> {
-    if ((await this.systemLocked.get()).value.not().toBoolean()) {
+    if ((await this.systemLocked.get()).value.not()) {
       this.systemLocked.set(Bool(true));
     }
   }
@@ -303,7 +299,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
       marketPrice
         .lessThanOrEqual(UInt224.from(95e17))
         .or(marketPrice.greaterThanOrEqual(UInt224.from(105e18)))
-        .toBoolean()
     ) {
       await this.lockSystem();
       return Bool(false);
@@ -311,7 +306,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
       (await this.systemLocked.get()).value
         .and(marketPrice.greaterThanOrEqual(UInt224.from(99e17)))
         .and(marketPrice.lessThanOrEqual(UInt224.from(101e18)))
-        .toBoolean()
     ) {
       await this.unlockSystem();
       return Bool(true);
@@ -341,7 +335,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         UInt224.Safe.fromField((await this.collateralRatio.get()).value.value)
       )
       .div(minaUsdRate);
-    if (minaCollateral.greaterThanOrEqual(requiredCollateral).toBoolean()) {
+    if (minaCollateral.greaterThanOrEqual(requiredCollateral)) {
       const fee = stablecoinAmount
         .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
         .div(1e18);
