@@ -326,12 +326,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
     );
 
     this.systemLocked.set(newLockedState);
-
-    // return Provable.if(
-    //   newLockedState.equals(Field(1)),
-    //   Bool(false),
-    //   Bool(true)
-    // );
   }
 
   /// MINT / BURNS ============================================
@@ -508,15 +502,104 @@ export class msUSD extends RuntimeModule<StableConfig> {
     return Bool(true);
   }
 
-  // / IN CASES OF DEPEGS
+  /// FAILSAFES =====================================================
+  /// IN CASES OF DEPEGS
+
   @runtimeMethod() public async stabilize(): Promise<void> {
     const marketPrice = await this.getStablePrice();
     const isLower = marketPrice.lessThan(UInt224.from(95e17));
     const isHigher = marketPrice.greaterThan(UInt224.from(105e16));
 
     await this.stabilizeLowPrice(isLower);
-    // TODO RN
     await this.stabilizeHighPrice(isHigher);
+
+    const newMarketPrice = await this.getStablePrice();
+    const needsEmergencyFunds = newMarketPrice
+      .lessThan(UInt224.from(98e17))
+      .or(newMarketPrice.greaterThan(UInt224.from(102e16)));
+
+    await this.useEmergencyFunds(needsEmergencyFunds);
+  }
+
+  @runtimeMethod()
+  private async useEmergencyFunds(
+    shouldUseEmergencyFunds: Bool
+  ): Promise<void> {
+    const currentPrice = await this.getStablePrice();
+    const isLow = currentPrice.lessThan(UInt224.from(98e17));
+
+    const emergencyCollateral = UInt224.Safe.fromField(
+      (await this.emergencyCollateralAmount.get()).value.value
+    );
+    const emergencyStablecoins = UInt224.Safe.fromField(
+      (await this.emergencyStableAmount.get()).value.value
+    );
+    const collateralPrice = await this.getCollateralPriceUsd();
+    const currentSupply = UInt224.Safe.fromField(
+      (await this.stableSupply.get()).value.value
+    );
+    const currentPoolStable = UInt224.Safe.fromField(
+      (await this.stabilityPoolStable.get()).value.value
+    );
+
+    const stablecoinsToBurn = emergencyCollateral
+      .mul(collateralPrice)
+      .div(UInt224.from(1e18));
+
+    const newSupply = UInt224.Safe.fromField(
+      Provable.if(
+        shouldUseEmergencyFunds,
+        Provable.if(
+          isLow,
+          Field.from(currentSupply.sub(stablecoinsToBurn).toBigInt()),
+          Field.from(currentSupply.add(emergencyStablecoins).toBigInt())
+        ),
+        Field.from(currentSupply.toBigInt())
+      )
+    );
+
+    this.stableSupply.set(newSupply);
+
+    const newPoolStable = UInt224.Safe.fromField(
+      Provable.if(
+        shouldUseEmergencyFunds.and(isLow.not()),
+        Field.from(currentPoolStable.add(emergencyStablecoins).toBigInt()),
+        Field.from(currentPoolStable.toBigInt())
+      )
+    );
+
+    this.stabilityPoolStable.set(newPoolStable);
+
+    const newEmergencyCollateral = UInt224.Safe.fromField(
+      Provable.if(
+        shouldUseEmergencyFunds.and(isLow),
+        Field.from(0),
+        Field.from(emergencyCollateral.toBigInt())
+      )
+    );
+    this.emergencyCollateralAmount.set(newEmergencyCollateral);
+
+    const newEmergencyStablecoins = UInt224.Safe.fromField(
+      Provable.if(
+        shouldUseEmergencyFunds.and(isLow.not()),
+        Field.from(0),
+        Field.from(emergencyStablecoins.toBigInt())
+      )
+    );
+    this.emergencyStableAmount.set(newEmergencyStablecoins);
+
+    const newPrice = await this.getStablePrice();
+
+    const shouldLock = newPrice
+      .lessThan(UInt224.from(98e17))
+      .or(newPrice.greaterThan(UInt224.from(102e16)));
+
+    const newLockedState = Provable.if(
+      shouldUseEmergencyFunds.and(shouldLock),
+      Field(1),
+      (await this.systemLocked.get()).value
+    );
+    this.systemLocked.set(newLockedState);
   }
 
   @runtimeMethod()

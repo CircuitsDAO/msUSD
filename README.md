@@ -1,30 +1,74 @@
-Decentralized stablecoins are a fascinating area of cryptocurrency, offering a unique approach to maintaining a stable value against fiat currencies like the US dollar. They operate differently from their centralized counterparts, such as USDC, which are backed by reserves of fiat currency held by a central issuer. Decentralized stablecoins, on the other hand, rely on a combination of smart contracts, algorithms, and sometimes collateral to maintain their peg.
-Key Concepts and Types of Decentralized Stablecoins
+# POC of Overcollateralized Stablecoin Appchain Module - msUSD - For Mina Protcol
 
-    Overcollateralized Stablecoins: These stablecoins require users to lock up collateral in a smart contract to generate the stablecoin. The most famous example is DAI, which is part of the MakerDAO ecosystem. Users deposit collateral (like ETH) into a smart contract, which then issues DAI. The system adjusts the interest rates to ensure the peg is maintained.
+### Capabilities
 
-    Algorithmic Stablecoins: These stablecoins use algorithms to automatically adjust the supply based on market conditions. They aim to maintain a peg by increasing or decreasing the supply of the stablecoin. An example is FRAX, which combines elements of collateral-backed supply and algorithmic supply.
+Minting: Users can mint stablecoins by providing collateral (MINA tokens). The amount of collateral required is determined by the current collateral ratio and the MINA/USD price.
 
-    Fractional Stablecoins: These are a newer type of stablecoin that aims to combine the benefits of both overcollateralized and algorithmic stablecoins. They use a mix of collateral and algorithmic adjustments to maintain their peg.
+Burning: Users can burn stablecoins to retrieve their collateral, subject to a cooldown period after minting.
+Transfer: Users can transfer stablecoins to other addresses.
+Price Stabilization: The system includes mechanisms to stabilize the price when it deviates too far from the peg:
 
-    Non-Pegged Stablecoins: While not strictly stablecoins, these are worth mentioning as they do not aim to maintain a peg to a fiat currency but rather focus on providing a stable value through other means, such as being tied to a basket of assets.
+For low prices: It burns stablecoins from the stability pool and uses emergency funds (90% of the fee collected)
 
-How Decentralized Stablecoins Stay Pegged
+For high prices: It mints new stablecoins into the stability pool and uses emergency funds (90% of the fee collected).
 
-    Smart Contracts and Algorithms: The core mechanism behind decentralized stablecoins is the use of smart contracts and algorithms. These tools automatically adjust the supply of the stablecoin based on market conditions, ensuring it remains pegged to the desired asset, often the US dollar 25.
+Liquidity Provision: Users can provide liquidity to the stability pool in the form of MINA tokens or stablecoins.
 
-    Collateralization: In the case of overcollateralized stablecoins like DAI, users lock up collateral in a smart contract. The system adjusts the interest rates to encourage or discourage borrowing, thereby influencing the supply of the stablecoin and maintaining the peg 35.
+Liquidity Withdrawal: Users can withdraw their provided liquidity from the stability pool.
+Fee Collection: The system collects fees on minting, burning, and transfers, which are distributed between a treasury and an emergency fund.
 
-    Community Governance: Decentralized stablecoins are managed by a community of stakeholders who make decisions through on-chain governance. This community plays a crucial role in adjusting parameters and responding to market conditions to maintain the peg 5.
+Dynamic Reward Rate: The system adjusts reward rates based on price deviations to incentivize stabilizing actions.
 
-Challenges and Risks
+System Locking: The system can be locked or unlocked based on price conditions to prevent operations during extreme volatility.
 
-Despite their innovative approach, decentralized stablecoins face challenges, including:
+### Limitations at the moment
 
-    Market Volatility: The peg can be tested during periods of market volatility. For instance, the collapse of Terra's UST highlighted the risks associated with algorithmic stablecoins 2.
+External Price Feed: The system relies on an external price feed for the MINA/USD price, which is updated by the CircuitsDAO. This introduces a centralized point of failure and trust.
 
-    User Behavior: The success of elastic supply chains, which incentivize users to hold the stablecoin by offering high interest rates, depends on user behavior. If users decide to sell their coins instead of staking them, the peg can be compromised 4.
+No Governance Mechanism: While there's a CircuitsDAO, there's no on-chain governance mechanism for parameter adjustments.
+Limited Asset Support: The system only supports MINA as collateral. It doesn't allow for multiple collateral types.
 
-    Technical Complexity: The mechanisms behind decentralized stablecoins, especially those involving complex algorithms and smart contracts, can be difficult to understand and manage, potentially leading to errors or vulnerabilities 5.
+No Partial Collateral Release: When burning stablecoins, users can't partially release collateral; they must burn all their stablecoins.
 
-In summary, decentralized stablecoins offer a novel approach to maintaining a stable value against fiat currencies, leveraging smart contracts, algorithms, and community governance. However, they also face significant challenges, including market volatility and user behavior, which can test their ability to maintain their peg.
+Fixed Cooldown Period: The 15-day cooldown period after minting is fixed and might be too rigid for some use cases.
+No Liquidation Mechanism: There's no automatic liquidation of undercollateralized positions, which could lead to system insolvency in rapid price declines.
+
+### Depeg Tolerance
+
+The system has several mechanisms to handle depegs:
+
+Price-based Stabilization: When the price deviates too far from the peg, the system automatically burns or mints stablecoins to stabilize the price.
+
+Stability Pool: Acts as a buffer for price stabilization actions.
+
+Dynamic Reward Rates: Incentivizes users to take stabilizing actions during price deviations.
+System Locking: Prevents operations during extreme volatility.
+
+These mechanisms provide some resilience against depegs, but their effectiveness would depend on market conditions and user behavior.
+
+Using emergency funds to help with the depeg.
+
+### What we didn't cover?
+
+Precision Loss: The frequent use of division operations could lead to precision loss over time. Atm we are at 1e18 precision scale.
+
+Unbounded Mint/Burn in Stabilization: There's no clear limit on how much can be minted or burned in a single stabilization action, which could lead to extreme actions in volatile markets.
+
+Lack of Slippage Protection: Large transfers or liquidity provisions/withdrawals don't account for slippage, which could be exploited.
+
+No Check for Minimum Collateralization: When burning stablecoins, there's no check to ensure the remaining position stays above the minimum collateralization ratio.
+
+Potential Overflow/Underflow: While using UInt224 provides a large range, there are still operations that could potentially overflow or underflow in extreme scenarios.
+
+Centralization Risks: The reliance on CircuitsDAO for price updates and the ability to update critical parameters introduces centralization risks.
+
+## Disclaimer
+
+While we did construct a POC, we were unable to test the implementation at all and would probably require a lot of fine tuning before its usable.
+We sincerely apologize we couldn't work out the testing properly due to some technical difficulties and a short window for hacking it together.
+
+# Thank you.
+
+We thank ETHGlobal for this opportunity and pushing all of us to our better version capable of amazing things.
+
+# ==========================================================================================
