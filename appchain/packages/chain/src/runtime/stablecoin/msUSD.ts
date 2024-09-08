@@ -17,23 +17,6 @@ import { UInt224 } from "@proto-kit/library";
 import { PublicKey, Field, Bool, Provable } from "o1js";
 
 export interface StableConfig {}
-// stableBalances: StateMap<PublicKey, UInt224>;
-// stableSupply: UInt224;
-// collateralBalances: StateMap<PublicKey, UInt224>;
-// collateralSupply: UInt224;
-// collateralPrice: UInt224;
-// collateralRatio: UInt224;
-// systemLocked: Bool;
-// CircuitsDAO: PublicKey;
-// fee: UInt224;
-// decimals: UInt224;
-// stableFeeCollected: UInt224;
-// collateralFeeCollected: UInt224;
-// /// THE STABLE AND COLLATERAL FEE COLLECTED ARE FURTHER SENT TO DEDICATED STORAGES.
-// treasuryStableAmount: UInt224;
-// treasuryCollateralAmount: UInt224;
-// emergencyStableAmount: UInt224;
-// emergencyCollateralAmount: UInt224;
 
 @runtimeModule()
 export class msUSD extends RuntimeModule<StableConfig> {
@@ -85,14 +68,20 @@ export class msUSD extends RuntimeModule<StableConfig> {
     assert(_fee.greaterThan(zero));
     assert(_decimals.greaterThan(zero));
 
-    this.stableSupply.set(zero);
-    this.collateralSupply.set(zero);
     this.CircuitsDAO.set(_circuitsDao);
+    this.collateralRatio.set(_ratio);
+    this.decimals.set(_decimals);
+    this.fee.set(_fee);
 
     this.systemLocked.set(Field.from(0));
-    this.collateralRatio.set(_ratio);
-    this.fee.set(_fee);
-    this.decimals.set(_decimals);
+    this.stableSupply.set(zero);
+    this.collateralSupply.set(zero);
+    this.stableFeeCollected.set(zero);
+    this.collateralFeeCollected.set(zero);
+    this.treasuryStableAmount.set(zero);
+    this.treasuryCollateralAmount.set(zero);
+    this.emergencyCollateralAmount.set(zero);
+    this.emergencyStableAmount.set(zero);
   }
 
   @runtimeMethod() public async setDAO(
@@ -238,17 +227,18 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const totalCollateralValueUsd = await this.getTotalCollateralValueUsd();
     const scaleFactor = UInt224.from(1e18);
 
+    const calculated = UInt224.from(
+      totalCollateralValueUsd
+        .mul(scaleFactor)
+        .div(
+          UInt224.Safe.fromField((await this.stableSupply.get()).value.value)
+        )
+    );
+
     let toSet = Provable.if(
       (await this.stableSupply.get()).value.value.equals(Field.from(0)),
       Field.from(1e18),
-      Field.from(
-        totalCollateralValueUsd
-          .mul(scaleFactor)
-          .div(
-            UInt224.Safe.fromField((await this.stableSupply.get()).value.value)
-          )
-          .toString()
-      )
+      UInt224.toFields(calculated)[0]
     );
 
     return UInt224.Safe.fromField(toSet);
@@ -406,51 +396,50 @@ export class msUSD extends RuntimeModule<StableConfig> {
         (await this.stableBalances.get(sender)).value.value
       ) || UInt224.from(0);
 
-    if (currentBalance >= stablecoinAmount) {
-      const fee = stablecoinAmount
-        .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
-        .div(1e18);
+    currentBalance.assertGreaterThanOrEqual(stablecoinAmount);
 
-      this.stableBalances.set(sender, currentBalance.sub(stablecoinAmount));
-      const currentSupply = UInt224.Safe.fromField(
-        (await this.stableSupply.get()).value.value
-      );
+    const fee = stablecoinAmount
+      .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
+      .div(1e18);
 
-      this.stableSupply.set(currentSupply.sub(stablecoinAmount.sub(fee)));
-      const currentFeeCollected = UInt224.Safe.fromField(
-        (await this.stableFeeCollected.get()).value.value
-      );
-      this.stableFeeCollected.set(currentFeeCollected.add(fee));
+    this.stableBalances.set(sender, currentBalance.sub(stablecoinAmount));
+    const currentSupply = UInt224.Safe.fromField(
+      (await this.stableSupply.get()).value.value
+    );
 
-      const [toReleaseCollateral, toHoldBack] =
-        await this.getReleasableCollateral(stablecoinAmount, fee);
+    this.stableSupply.set(currentSupply.sub(stablecoinAmount.sub(fee)));
+    const currentFeeCollected = UInt224.Safe.fromField(
+      (await this.stableFeeCollected.get()).value.value
+    );
+    this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
-      const currentCollateralBalance =
-        UInt224.Safe.fromField(
-          (await this.collateralBalances.get(sender)).value.value
-        ) || UInt224.from(0);
-      this.collateralBalances.set(
-        sender,
-        currentCollateralBalance.sub(toReleaseCollateral)
-      );
+    const [toReleaseCollateral, toHoldBack] =
+      await this.getReleasableCollateral(stablecoinAmount, fee);
 
-      const currentCollateralSupply = UInt224.Safe.fromField(
-        (await this.collateralSupply.get()).value.value
-      );
-      this.collateralSupply.set(
-        currentCollateralSupply.sub(toReleaseCollateral.add(toHoldBack))
-      );
+    const currentCollateralBalance =
+      UInt224.Safe.fromField(
+        (await this.collateralBalances.get(sender)).value.value
+      ) || UInt224.from(0);
+    this.collateralBalances.set(
+      sender,
+      currentCollateralBalance.sub(toReleaseCollateral)
+    );
 
-      const currentCollateralFeeCollected = UInt224.Safe.fromField(
-        (await this.collateralFeeCollected.get()).value.value
-      );
-      this.collateralFeeCollected.set(
-        currentCollateralFeeCollected.add(toHoldBack)
-      );
+    const currentCollateralSupply = UInt224.Safe.fromField(
+      (await this.collateralSupply.get()).value.value
+    );
+    this.collateralSupply.set(
+      currentCollateralSupply.sub(toReleaseCollateral.add(toHoldBack))
+    );
 
-      return Bool(true);
-    }
-    return Bool(false);
+    const currentCollateralFeeCollected = UInt224.Safe.fromField(
+      (await this.collateralFeeCollected.get()).value.value
+    );
+    this.collateralFeeCollected.set(
+      currentCollateralFeeCollected.add(toHoldBack)
+    );
+
+    return Bool(true);
   }
 
   @runtimeMethod() public async transfer(
