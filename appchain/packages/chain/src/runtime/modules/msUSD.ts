@@ -16,7 +16,7 @@ import {
 import { UInt224 } from "@proto-kit/library";
 import { PublicKey, Field, Bool } from "o1js";
 
-interface StableConfig {
+export interface StableConfig {
   stableBalances: StateMap<PublicKey, UInt224>;
   stableSupply: UInt224;
   collateralBalances: StateMap<PublicKey, UInt224>;
@@ -130,6 +130,56 @@ export class msUSD extends RuntimeModule<StableConfig> {
     this.collateralPrice.set(price);
   }
 
+  @runtimeMethod()
+  public async distributeFee(): Promise<void> {
+    const stableFee = UInt224.Safe.fromField(
+      (await this.stableFeeCollected.get()).value.value
+    );
+    const collateralFee = UInt224.Safe.fromField(
+      (await this.collateralFeeCollected.get()).value.value
+    );
+
+    const SCALE = UInt224.from(1e18);
+    const TREASURY_SHARE = UInt224.from(5e16); // 5% in 1e18 scale
+
+    const treasuryStableShare = stableFee.mul(TREASURY_SHARE).div(SCALE);
+    const emergencyStableShare = stableFee.sub(treasuryStableShare);
+
+    const treasuryCollateralShare = collateralFee
+      .mul(TREASURY_SHARE)
+      .div(SCALE);
+    const emergencyCollateralShare = collateralFee.sub(treasuryCollateralShare);
+
+    const currentTreasuryStable = UInt224.Safe.fromField(
+      (await this.treasuryStableAmount.get()).value.value
+    );
+    const currentTreasuryCollateral = UInt224.Safe.fromField(
+      (await this.treasuryCollateralAmount.get()).value.value
+    );
+    this.treasuryStableAmount.set(
+      currentTreasuryStable.add(treasuryStableShare)
+    );
+    this.treasuryCollateralAmount.set(
+      currentTreasuryCollateral.add(treasuryCollateralShare)
+    );
+
+    const currentEmergencyStable = UInt224.Safe.fromField(
+      (await this.emergencyStableAmount.get()).value.value
+    );
+    const currentEmergencyCollateral = UInt224.Safe.fromField(
+      (await this.emergencyCollateralAmount.get()).value.value
+    );
+    this.emergencyStableAmount.set(
+      currentEmergencyStable.add(emergencyStableShare)
+    );
+    this.emergencyCollateralAmount.set(
+      currentEmergencyCollateral.add(emergencyCollateralShare)
+    );
+
+    this.stableFeeCollected.set(UInt224.from(0));
+    this.collateralFeeCollected.set(UInt224.from(0));
+  }
+
   /// GETTER METHODS ==============================================
 
   @runtimeMethod() public async getCollateralBalance(
@@ -212,19 +262,15 @@ export class msUSD extends RuntimeModule<StableConfig> {
     );
     const collateralPrice = await this.getCollateralPriceUsd();
 
-    // Calculate the proportion of collateral to release
     const releaseRatio = burnedAmount.div(totalStableSupply);
     const totalReleasableCollateral = totalCollateral.mul(releaseRatio);
 
-    // Calculate the USD value of burned stablecoins
     const burnedValueUsd = burnedAmount;
 
-    // Calculate the amount of collateral that equals the burned value
     const collateralToRelease = burnedValueUsd
       .mul(UInt224.from(1e18))
       .div(collateralPrice);
 
-    // The difference is held back to maintain or improve the collateralization ratio
     const collateralToHoldBack =
       totalReleasableCollateral.sub(collateralToRelease);
 
@@ -355,7 +401,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
         .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
         .div(1e18);
 
-      /// Subtract the stablecoin balance.
       this.stableBalances.set(sender, currentBalance.sub(stablecoinAmount));
       const currentSupply = UInt224.Safe.fromField(
         (await this.stableSupply.get()).value.value
@@ -370,7 +415,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
       const [toReleaseCollateral, toHoldBack] =
         await this.getReleasableCollateral(stablecoinAmount, fee);
 
-      // Update user's collateral balance
       const currentCollateralBalance =
         UInt224.Safe.fromField(
           (await this.collateralBalances.get(sender)).value.value
@@ -380,7 +424,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
         currentCollateralBalance.sub(toReleaseCollateral)
       );
 
-      // Update total collateral supply
       const currentCollateralSupply = UInt224.Safe.fromField(
         (await this.collateralSupply.get()).value.value
       );
