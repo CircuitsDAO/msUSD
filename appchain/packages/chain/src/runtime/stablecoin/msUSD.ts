@@ -14,7 +14,7 @@ import {
   state,
 } from "@proto-kit/module";
 import { UInt224 } from "@proto-kit/library";
-import { PublicKey, Field, Bool } from "o1js";
+import { PublicKey, Field, Bool, Provable } from "o1js";
 
 export interface StableConfig {}
 // stableBalances: StateMap<PublicKey, UInt224>;
@@ -50,7 +50,9 @@ export class msUSD extends RuntimeModule<StableConfig> {
   @state() public CircuitsDAO = State.from(PublicKey);
 
   /// FOR FAULT TOLERENCE AND EMERGENCY DEPEGS
-  @state() public systemLocked = State.from(Bool);
+  // (Field(0)): System is unlocked
+  // (Field(1)): System is locked
+  @state() public systemLocked = State.from(Field);
 
   @state() public fee = State.from(UInt224);
   @state() public stableFeeCollected = State.from(UInt224);
@@ -87,7 +89,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
     this.collateralSupply.set(zero);
     this.CircuitsDAO.set(_circuitsDao);
 
-    this.systemLocked.set(Bool(false));
+    this.systemLocked.set(Field.from(0));
     this.collateralRatio.set(_ratio);
     this.fee.set(_fee);
     this.decimals.set(_decimals);
@@ -234,13 +236,22 @@ export class msUSD extends RuntimeModule<StableConfig> {
 
   @runtimeMethod() public async getStablePrice(): Promise<UInt224> {
     const totalCollateralValueUsd = await this.getTotalCollateralValueUsd();
-    if ((await this.stableSupply.get()).value.value.equals(Field.from(0))) {
-      return UInt224.from(1e18); // Return 1, scaled to 1e18
-    }
     const scaleFactor = UInt224.from(1e18);
-    return totalCollateralValueUsd
-      .mul(scaleFactor)
-      .div(UInt224.Safe.fromField((await this.stableSupply.get()).value.value));
+
+    let toSet = Provable.if(
+      (await this.stableSupply.get()).value.value.equals(Field.from(0)),
+      Field.from(1e18),
+      Field.from(
+        totalCollateralValueUsd
+          .mul(scaleFactor)
+          .div(
+            UInt224.Safe.fromField((await this.stableSupply.get()).value.value)
+          )
+          .toString()
+      )
+    );
+
+    return UInt224.Safe.fromField(toSet);
   }
 
   @runtimeMethod()
@@ -276,39 +287,48 @@ export class msUSD extends RuntimeModule<StableConfig> {
   /// LOCKS - THE PRICE DEPEGS ABOVE $1.05 OR BELOW $0.95
   /// UNLOCKS - THE PRICE COMES BACK TO BELOW $1.01 OR ABOVE $0.99
 
-  @runtimeMethod() private async unlockSystem(): Promise<void> {
-    if ((await this.systemLocked.get()).value) {
-      this.systemLocked.set(Bool(false));
-    }
-    this.systemLocked.set(Bool(false));
-  }
-
-  @runtimeMethod() private async lockSystem(): Promise<void> {
-    if ((await this.systemLocked.get()).value.not()) {
-      this.systemLocked.set(Bool(true));
-    }
-  }
-
-  @runtimeMethod() private async stablePriceChecks(): Promise<Bool> {
+  @runtimeMethod() async stablePriceChecks(): Promise<void> {
     const marketPrice = await this.getStablePrice();
+    const isSystemLocked = (await this.systemLocked.get()).value.equals(
+      Field(1)
+    );
 
-    if (
-      marketPrice
-        .lessThanOrEqual(UInt224.from(95e17))
-        .or(marketPrice.greaterThanOrEqual(UInt224.from(105e18)))
-    ) {
-      await this.lockSystem();
-      return Bool(false);
-    } else if (
-      (await this.systemLocked.get()).value
-        .and(marketPrice.greaterThanOrEqual(UInt224.from(99e17)))
-        .and(marketPrice.lessThanOrEqual(UInt224.from(101e18)))
-    ) {
-      await this.unlockSystem();
-      return Bool(true);
-    }
+    // Check if price is out of range (lock condition)
+    const shouldLock = marketPrice
+      .lessThanOrEqual(UInt224.from(95e17))
+      .or(marketPrice.greaterThanOrEqual(UInt224.from(105e18)));
 
-    return Bool(true);
+    // Check if price is in stable range and system is currently locked (unlock condition)
+    const shouldUnlock = isSystemLocked
+      .and(marketPrice.greaterThanOrEqual(UInt224.from(99e17)))
+      .and(marketPrice.lessThanOrEqual(UInt224.from(101e18)));
+
+    // Determine the action to take:
+    // 0 = do nothing, 1 = lock, 2 = unlock
+    const action = Provable.if(
+      shouldLock,
+      Field(1),
+      Provable.if(shouldUnlock, Field(2), Field(0))
+    );
+
+    // Execute the action based on the determined value
+    const newLockedState = Provable.if(
+      action.equals(Field(1)),
+      Field(1),
+      Provable.if(
+        action.equals(Field(2)),
+        Field(0),
+        (await this.systemLocked.get()).value
+      )
+    );
+
+    this.systemLocked.set(newLockedState);
+
+    // return Provable.if(
+    //   newLockedState.equals(Field(1)),
+    //   Bool(false),
+    //   Bool(true)
+    // );
   }
 
   /// MINT / BURNS ============================================
@@ -318,7 +338,8 @@ export class msUSD extends RuntimeModule<StableConfig> {
     minaCollateral: UInt224
   ): Promise<Bool> {
     await this.stablePriceChecks();
-    assert((await this.systemLocked.get()).value.not());
+    (await this.systemLocked.get()).value.assertNotEquals(Field.from(1));
+
     assert(
       stablecoinAmount
         .greaterThan(UInt224.from(0))
@@ -377,9 +398,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
 
   @runtimeMethod() public async burn(stablecoinAmount: UInt224): Promise<Bool> {
     await this.stablePriceChecks();
-    if ((await this.systemLocked.get()).value) {
-      return Bool(false);
-    }
+    (await this.systemLocked.get()).value.assertNotEquals(Field.from(1));
 
     const sender = this.transaction.sender.value;
     const currentBalance =

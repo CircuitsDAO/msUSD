@@ -1,6 +1,6 @@
 import { PrivateKey, PublicKey } from "o1js";
 import { TestingAppChain } from "@proto-kit/sdk";
-import { msUSD } from "../../../src/runtime/stablecoin/msUSD";
+import { msUSD } from "../../../src/runtime/stablecoin";
 
 describe("msUSD", () => {
   let appChain: ReturnType<
