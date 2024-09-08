@@ -16,25 +16,24 @@ import {
 import { UInt224 } from "@proto-kit/library";
 import { PublicKey, Field, Bool } from "o1js";
 
-export interface StableConfig {
-  stableBalances: StateMap<PublicKey, UInt224>;
-  stableSupply: UInt224;
-  collateralBalances: StateMap<PublicKey, UInt224>;
-  collateralSupply: UInt224;
-  collateralPrice: UInt224;
-  collateralRatio: UInt224;
-  systemLocked: Bool;
-  CircuitsDAO: PublicKey;
-  fee: UInt224;
-  decimals: UInt224;
-  stableFeeCollected: UInt224;
-  collateralFeeCollected: UInt224;
-  /// THE STABLE AND COLLATERAL FEE COLLECTED ARE FURTHER SENT TO DEDICATED STORAGES.
-  treasuryStableAmount: UInt224;
-  treasuryCollateralAmount: UInt224;
-  emergencyStableAmount: UInt224;
-  emergencyCollateralAmount: UInt224;
-}
+export interface StableConfig {}
+// stableBalances: StateMap<PublicKey, UInt224>;
+// stableSupply: UInt224;
+// collateralBalances: StateMap<PublicKey, UInt224>;
+// collateralSupply: UInt224;
+// collateralPrice: UInt224;
+// collateralRatio: UInt224;
+// systemLocked: Bool;
+// CircuitsDAO: PublicKey;
+// fee: UInt224;
+// decimals: UInt224;
+// stableFeeCollected: UInt224;
+// collateralFeeCollected: UInt224;
+// /// THE STABLE AND COLLATERAL FEE COLLECTED ARE FURTHER SENT TO DEDICATED STORAGES.
+// treasuryStableAmount: UInt224;
+// treasuryCollateralAmount: UInt224;
+// emergencyStableAmount: UInt224;
+// emergencyCollateralAmount: UInt224;
 
 @runtimeModule()
 export class msUSD extends RuntimeModule<StableConfig> {
@@ -261,9 +260,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const releaseRatio = burnedAmount.div(totalStableSupply);
     const totalReleasableCollateral = totalCollateral.mul(releaseRatio);
 
-    const burnedValueUsd = burnedAmount;
-
-    const collateralToRelease = burnedValueUsd
+    const collateralToRelease = burnedAmount
       .mul(UInt224.from(1e18))
       .div(collateralPrice);
 
