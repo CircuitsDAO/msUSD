@@ -516,12 +516,11 @@ export class msUSD extends RuntimeModule<StableConfig> {
 
     await this.stabilizeLowPrice(isLower);
     // TODO RN
-    // await this.stabilizeHighPrice(isHigher);
+    await this.stabilizeHighPrice(isHigher);
   }
 
-  @runtimeMethod() private async stabilizeLowPrice(
-    isLower: Bool
-  ): Promise<void> {
+  @runtimeMethod()
+  private async stabilizeLowPrice(isLower: Bool): Promise<void> {
     const poolStable = (await this.stabilityPoolStable.get()).value.value;
     const factor = Field.from(
       UInt224.Safe.fromField((await this.stableSupply.get()).value.value)
@@ -529,38 +528,235 @@ export class msUSD extends RuntimeModule<StableConfig> {
         .toBigInt()
     );
 
-    /// The pool of stablecoins is emptied and the same is done to the supply that is equal amounts removed.
-    const burnAmount = Provable.if(
-      poolStable.lessThanOrEqual(factor),
-      poolStable,
-      factor
+    const burnAmount = UInt224.Safe.fromField(
+      Provable.if(
+        isLower,
+        Provable.if(poolStable.lessThanOrEqual(factor), poolStable, factor),
+        Field(0)
+      )
     );
 
-    this.stableSupply.set(
-      UInt224.Safe.fromField(
-        (await this.stableSupply.get()).value.value.sub(burnAmount)
+    const currentStableSupply = UInt224.Safe.fromField(
+      (await this.stableSupply.get()).value.value
+    );
+    const newStableSupply = UInt224.Safe.fromField(
+      Provable.if(
+        isLower,
+        Field.from(currentStableSupply.sub(burnAmount).toBigInt()),
+        Field.from(currentStableSupply.toBigInt())
       )
     );
-    this.stabilityPoolStable.set(
-      UInt224.Safe.fromField(
-        (await this.stabilityPoolStable.get()).value.value.sub(burnAmount)
+
+    this.stableSupply.set(newStableSupply);
+
+    const currentStabilityPoolStable = UInt224.Safe.fromField(
+      (await this.stabilityPoolStable.get()).value.value
+    );
+    const newStabilityPoolStable = UInt224.Safe.fromField(
+      Provable.if(
+        isLower,
+        Field.from(currentStabilityPoolStable.sub(burnAmount).toBigInt()),
+        Field.from(currentStabilityPoolStable.toBigInt())
       )
     );
+    this.stabilityPoolStable.set(newStabilityPoolStable);
 
     const priceDeviation = UInt224.from(1e18).sub(await this.getStablePrice());
-    const dynamicRewardRate = UInt224.Safe.fromField(
+    const baseRewardRate = UInt224.Safe.fromField(
       (await this.baseRewardRate.get()).value.value
-    ).add(
-      UInt224.Safe.fromField((await this.baseRewardRate.get()).value.value)
-        .mul(priceDeviation)
-        .div(BigInt(1e18))
     );
-    const rewardAmount =
-      UInt224.Safe.fromField(burnAmount).mul(dynamicRewardRate);
-    this.rewardPool.set(
-      UInt224.Safe.fromField((await this.rewardPool.get()).value.value).add(
-        rewardAmount
+    const dynamicRewardRate = baseRewardRate.add(
+      baseRewardRate.mul(priceDeviation).div(BigInt(1e18))
+    );
+
+    const rewardAmount = burnAmount.mul(dynamicRewardRate);
+
+    const currentRewardPool = UInt224.Safe.fromField(
+      (await this.rewardPool.get()).value.value
+    );
+    const newRewardPool = UInt224.Safe.fromField(
+      Provable.if(
+        isLower,
+        Field.from(currentRewardPool.add(rewardAmount).toBigInt()),
+        Field.from(currentRewardPool.toBigInt())
       )
     );
+    this.rewardPool.set(newRewardPool);
+  }
+
+  @runtimeMethod()
+  private async stabilizeHighPrice(isHigher: Bool): Promise<void> {
+    const minaUsdRate = await this.getCollateralPriceUsd();
+    const stabilityPoolMinaBalance = UInt224.Safe.fromField(
+      (await this.stabilityPoolMina.get()).value.value
+    );
+    const totalSupply = UInt224.Safe.fromField(
+      (await this.stableSupply.get()).value.value
+    );
+    const collateralRatio = UInt224.Safe.fromField(
+      (await this.collateralRatio.get()).value.value
+    );
+
+    const maxMintByCollateral = stabilityPoolMinaBalance
+      .mul(minaUsdRate)
+      .div(collateralRatio);
+    const tenPercentSupply = totalSupply.div(UInt224.from(10));
+
+    const mintAmount = UInt224.Safe.fromField(
+      Provable.if(
+        isHigher,
+        Provable.if(
+          maxMintByCollateral.lessThanOrEqual(tenPercentSupply),
+          Field.from(maxMintByCollateral.toBigInt()),
+          Field.from(tenPercentSupply.toBigInt())
+        ),
+        Field.from(0)
+      )
+    );
+
+    const newTotalSupply = totalSupply.add(mintAmount);
+    this.stableSupply.set(newTotalSupply);
+
+    const currentStabilityPoolStable = UInt224.Safe.fromField(
+      (await this.stabilityPoolStable.get()).value.value
+    );
+    const newStabilityPoolStable = currentStabilityPoolStable.add(mintAmount);
+    this.stabilityPoolStable.set(newStabilityPoolStable);
+
+    const marketPrice = await this.getStablePrice();
+    const priceDeviation = marketPrice.sub(UInt224.from(1e18));
+    const baseRewardRate = UInt224.Safe.fromField(
+      (await this.baseRewardRate.get()).value.value
+    );
+    const dynamicRewardRate = baseRewardRate.add(
+      baseRewardRate.mul(priceDeviation).div(UInt224.from(1e18))
+    );
+
+    const rewardAmount = mintAmount.mul(dynamicRewardRate);
+
+    const currentRewardPool = UInt224.Safe.fromField(
+      (await this.rewardPool.get()).value.value
+    );
+    const newRewardPool = currentRewardPool.add(rewardAmount);
+    this.rewardPool.set(newRewardPool);
+  }
+
+  @runtimeMethod()
+  public async provideLiquidity(
+    minaAmount: UInt224,
+    stablecoinAmount: UInt224
+  ): Promise<Bool> {
+    const sender = this.transaction.sender.value;
+
+    assert(
+      minaAmount
+        .greaterThan(UInt224.from(0))
+        .or(stablecoinAmount.greaterThan(UInt224.from(0))),
+      "Must provide either Mina or stablecoins"
+    );
+
+    if (minaAmount.greaterThan(UInt224.from(0))) {
+      const currentMinaBalance = UInt224.Safe.fromField(
+        (await this.stabilityPoolMinaBalances.get(sender)).value.value ||
+          Field(0)
+      );
+      const newMinaBalance = currentMinaBalance.add(minaAmount);
+      await this.stabilityPoolMinaBalances.set(sender, newMinaBalance);
+
+      const currentPoolMina = UInt224.Safe.fromField(
+        (await this.stabilityPoolMina.get()).value.value
+      );
+      await this.stabilityPoolMina.set(currentPoolMina.add(minaAmount));
+    }
+
+    if (stablecoinAmount.greaterThan(UInt224.from(0))) {
+      const userBalance = UInt224.Safe.fromField(
+        (await this.stableBalances.get(sender)).value.value || Field(0)
+      );
+      assert(
+        userBalance.greaterThanOrEqual(stablecoinAmount),
+        "Insufficient stablecoin balance"
+      );
+
+      const newUserBalance = userBalance.sub(stablecoinAmount);
+      await this.stableBalances.set(sender, newUserBalance);
+
+      const currentStableBalance = UInt224.Safe.fromField(
+        (await this.stabilityPoolStablecoinBalances.get(sender)).value.value ||
+          Field(0)
+      );
+      const newStableBalance = currentStableBalance.add(stablecoinAmount);
+      await this.stabilityPoolStablecoinBalances.set(sender, newStableBalance);
+
+      const currentPoolStable = UInt224.Safe.fromField(
+        (await this.stabilityPoolStable.get()).value.value
+      );
+      await this.stabilityPoolStable.set(
+        currentPoolStable.add(stablecoinAmount)
+      );
+    }
+
+    await this.stabilize();
+
+    return Bool(true);
+  }
+
+  @runtimeMethod()
+  public async withdrawLiquidity(
+    minaAmount: UInt224,
+    stablecoinAmount: UInt224
+  ): Promise<Bool> {
+    const sender = this.transaction.sender.value;
+
+    const currentMinaBalance = UInt224.Safe.fromField(
+      (await this.stabilityPoolMinaBalances.get(sender)).value.value || Field(0)
+    );
+    const currentStableBalance = UInt224.Safe.fromField(
+      (await this.stabilityPoolStablecoinBalances.get(sender)).value.value ||
+        Field(0)
+    );
+
+    assert(
+      currentMinaBalance
+        .greaterThan(UInt224.from(0))
+        .or(currentStableBalance.greaterThan(UInt224.from(0))),
+      "No liquidity provided by this address"
+    );
+
+    assert(
+      minaAmount
+        .lessThanOrEqual(currentMinaBalance)
+        .and(stablecoinAmount.lessThanOrEqual(currentStableBalance)),
+      "Withdrawal amount exceeds contribution"
+    );
+
+    if (minaAmount.greaterThan(UInt224.from(0))) {
+      const newMinaBalance = currentMinaBalance.sub(minaAmount);
+      await this.stabilityPoolMinaBalances.set(sender, newMinaBalance);
+
+      const currentPoolMina = UInt224.Safe.fromField(
+        (await this.stabilityPoolMina.get()).value.value
+      );
+      await this.stabilityPoolMina.set(currentPoolMina.sub(minaAmount));
+    }
+
+    if (stablecoinAmount.greaterThan(UInt224.from(0))) {
+      const newStableBalance = currentStableBalance.sub(stablecoinAmount);
+      await this.stabilityPoolStablecoinBalances.set(sender, newStableBalance);
+
+      const currentPoolStable = UInt224.Safe.fromField(
+        (await this.stabilityPoolStable.get()).value.value
+      );
+      await this.stabilityPoolStable.set(
+        currentPoolStable.sub(stablecoinAmount)
+      );
+
+      const userBalance = UInt224.Safe.fromField(
+        (await this.stableBalances.get(sender)).value.value || Field(0)
+      );
+      await this.stableBalances.set(sender, userBalance.add(stablecoinAmount));
+    }
+
+    return Bool(true);
   }
 }
