@@ -26,8 +26,14 @@ interface StableConfig {
   systemLocked: Bool;
   CircuitsDAO: PublicKey;
   fee: UInt224;
-  feeCollected: UInt224;
   decimals: UInt224;
+  stableFeeCollected: UInt224;
+  collateralFeeCollected: UInt224;
+  /// THE STABLE AND COLLATERAL FEE COLLECTED ARE FURTHER SENT TO DEDICATED STORAGES.
+  treasuryStableAmount: UInt224;
+  treasuryCollateralAmount: UInt224;
+  emergencyStableAmount: UInt224;
+  emergencyCollateralAmount: UInt224;
 }
 
 @runtimeModule()
@@ -48,9 +54,14 @@ export class msUSD extends RuntimeModule<StableConfig> {
   @state() public systemLocked = State.from(Bool);
 
   @state() public fee = State.from(UInt224);
-  @state() public feeCollected = State.from(UInt224);
+  @state() public stableFeeCollected = State.from(UInt224);
+  @state() public collateralFeeCollected = State.from(UInt224);
 
   @state() public decimals = State.from(UInt224);
+  @state() public treasuryStableAmount = State.from(UInt224);
+  @state() public treasuryCollateralAmount = State.from(UInt224);
+  @state() public emergencyStableAmount = State.from(UInt224);
+  @state() public emergencyCollateralAmount = State.from(UInt224);
 
   /// SETTER METHODS ==============================================
   /// @param toSetRatio - Default is 15-
@@ -187,13 +198,38 @@ export class msUSD extends RuntimeModule<StableConfig> {
       .div(UInt224.Safe.fromField((await this.stableSupply.get()).value.value));
   }
 
-  @runtimeMethod() public async getReleasableCollateral(
-    _stablecoinAmount: UInt224,
-    _fee: UInt224
-  ): Promise<UInt224> {
-    return UInt224.from(0);
-  }
+  @runtimeMethod()
+  public async getReleasableCollateral(
+    stablecoinAmount: UInt224,
+    fee: UInt224
+  ): Promise<[UInt224, UInt224]> {
+    const burnedAmount = stablecoinAmount.sub(fee);
+    const totalCollateral = UInt224.Safe.fromField(
+      (await this.collateralSupply.get()).value.value
+    );
+    const totalStableSupply = UInt224.Safe.fromField(
+      (await this.stableSupply.get()).value.value
+    );
+    const collateralPrice = await this.getCollateralPriceUsd();
 
+    // Calculate the proportion of collateral to release
+    const releaseRatio = burnedAmount.div(totalStableSupply);
+    const totalReleasableCollateral = totalCollateral.mul(releaseRatio);
+
+    // Calculate the USD value of burned stablecoins
+    const burnedValueUsd = burnedAmount;
+
+    // Calculate the amount of collateral that equals the burned value
+    const collateralToRelease = burnedValueUsd
+      .mul(UInt224.from(1e18))
+      .div(collateralPrice);
+
+    // The difference is held back to maintain or improve the collateralization ratio
+    const collateralToHoldBack =
+      totalReleasableCollateral.sub(collateralToRelease);
+
+    return [collateralToRelease, collateralToHoldBack];
+  }
   /// CORE FUNCTIONS ==============================================
 
   /// LOCKS ===============================================
@@ -232,6 +268,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         .toBoolean()
     ) {
       await this.unlockSystem();
+      return Bool(true);
     }
 
     return Bool(true);
@@ -245,6 +282,11 @@ export class msUSD extends RuntimeModule<StableConfig> {
   ): Promise<Bool> {
     await this.stablePriceChecks();
     assert((await this.systemLocked.get()).value.not());
+    assert(
+      stablecoinAmount
+        .greaterThan(UInt224.from(0))
+        .and(minaCollateral.greaterThan(UInt224.from(0)))
+    );
 
     const sender = this.transaction.sender.value;
     const minaUsdRate = await this.getCollateralPriceUsd();
@@ -261,9 +303,9 @@ export class msUSD extends RuntimeModule<StableConfig> {
       const mintedAmount = stablecoinAmount.sub(fee);
 
       const currentFeeCollected = UInt224.Safe.fromField(
-        (await this.feeCollected.get()).value.value
+        (await this.stableFeeCollected.get()).value.value
       );
-      await this.feeCollected.set(currentFeeCollected.add(fee));
+      await this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
       const currentStableBalance =
         UInt224.Safe.fromField(
@@ -318,19 +360,41 @@ export class msUSD extends RuntimeModule<StableConfig> {
       const currentSupply = UInt224.Safe.fromField(
         (await this.stableSupply.get()).value.value
       );
-      /// Remove the sent-fee from circulation
+
       this.stableSupply.set(currentSupply.sub(stablecoinAmount.sub(fee)));
-
       const currentFeeCollected = UInt224.Safe.fromField(
-        (await this.feeCollected.get()).value.value
+        (await this.stableFeeCollected.get()).value.value
       );
-      await this.feeCollected.set(currentFeeCollected.add(fee));
+      this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
-      const toReleaseCollateral = await this.getReleasableCollateral(
-        stablecoinAmount,
-        fee
+      const [toReleaseCollateral, toHoldBack] =
+        await this.getReleasableCollateral(stablecoinAmount, fee);
+
+      // Update user's collateral balance
+      const currentCollateralBalance =
+        UInt224.Safe.fromField(
+          (await this.collateralBalances.get(sender)).value.value
+        ) || UInt224.from(0);
+      this.collateralBalances.set(
+        sender,
+        currentCollateralBalance.sub(toReleaseCollateral)
       );
-      // this.distributeFees(fee);
+
+      // Update total collateral supply
+      const currentCollateralSupply = UInt224.Safe.fromField(
+        (await this.collateralSupply.get()).value.value
+      );
+      this.collateralSupply.set(
+        currentCollateralSupply.sub(toReleaseCollateral.add(toHoldBack))
+      );
+
+      const currentCollateralFeeCollected = UInt224.Safe.fromField(
+        (await this.collateralFeeCollected.get()).value.value
+      );
+      this.collateralFeeCollected.set(
+        currentCollateralFeeCollected.add(toHoldBack)
+      );
+
       return Bool(true);
     }
     return Bool(false);
