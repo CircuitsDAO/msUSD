@@ -13,7 +13,7 @@ import {
   runtimeMethod,
   state,
 } from "@proto-kit/module";
-import { UInt224 } from "@proto-kit/library";
+import { UInt224, UInt64 } from "@proto-kit/library";
 import { PublicKey, Field, Bool, Provable } from "o1js";
 
 export interface StableConfig {}
@@ -24,6 +24,8 @@ export class msUSD extends RuntimeModule<StableConfig> {
   @state() public stableSupply = State.from(UInt224);
   @state() public collateralBalances = StateMap.from(PublicKey, UInt224);
   @state() public collateralSupply = State.from(UInt224);
+
+  @state() public lastMintedAtBlock = StateMap.from(PublicKey, UInt64);
 
   /// UPDATED REGULARLY BY THE DAO'S MULTISIG
   @state() public collateralPrice = State.from(UInt224);
@@ -47,10 +49,20 @@ export class msUSD extends RuntimeModule<StableConfig> {
   @state() public emergencyStableAmount = State.from(UInt224);
   @state() public emergencyCollateralAmount = State.from(UInt224);
 
+  @state() public stabilityPoolMina = State.from(UInt224);
+  @state() public stabilityPoolMinaBalances = StateMap.from(PublicKey, UInt224);
+  @state() public stabilityPoolStable = State.from(UInt224);
+  @state() public stabilityPoolStablecoinBalances = StateMap.from(
+    PublicKey,
+    UInt224
+  );
+  @state() public rewardPool = State.from(UInt224);
+  @state() public baseRewardRate = State.from(UInt224);
+
   /// SETTER METHODS ==============================================
   /// @param toSetRatio - Default is 15-
 
-  @runtimeMethod() public async init(
+  @runtimeMethod() public async start(
     _circuitsDao: PublicKey,
     _ratio: UInt224, /// 150% == 15e19
     _fee: UInt224, /// 0.05% == 5e16
@@ -68,10 +80,11 @@ export class msUSD extends RuntimeModule<StableConfig> {
     assert(_fee.greaterThan(zero));
     assert(_decimals.greaterThan(zero));
 
-    this.CircuitsDAO.set(_circuitsDao);
-    this.collateralRatio.set(_ratio);
-    this.decimals.set(_decimals);
-    this.fee.set(_fee);
+    this.CircuitsDAO.set(this.transaction.sender.value);
+    this.collateralRatio.set(UInt224.from(15e19));
+    this.decimals.set(UInt224.from(1e18));
+    this.fee.set(UInt224.from(5e16));
+    this.baseRewardRate.set(UInt224.from(5e16));
 
     this.systemLocked.set(Field.from(0));
     this.stableSupply.set(zero);
@@ -343,47 +356,49 @@ export class msUSD extends RuntimeModule<StableConfig> {
         UInt224.Safe.fromField((await this.collateralRatio.get()).value.value)
       )
       .div(minaUsdRate);
-    if (minaCollateral.greaterThanOrEqual(requiredCollateral)) {
-      const fee = stablecoinAmount
-        .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
-        .div(1e18);
 
-      const mintedAmount = stablecoinAmount.sub(fee);
+    assert(minaCollateral.greaterThanOrEqual(requiredCollateral));
 
-      const currentFeeCollected = UInt224.Safe.fromField(
-        (await this.stableFeeCollected.get()).value.value
-      );
-      await this.stableFeeCollected.set(currentFeeCollected.add(fee));
+    const fee = stablecoinAmount
+      .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
+      .div(1e18);
 
-      const currentStableBalance =
-        UInt224.Safe.fromField(
-          (await this.stableBalances.get(sender)).value.value
-        ) || UInt224.from(0);
-      const currentCollateralBalance =
-        UInt224.Safe.fromField(
-          (await this.collateralBalances.get(sender)).value.value
-        ) || UInt224.from(0);
+    const mintedAmount = stablecoinAmount.sub(fee);
 
-      this.stableBalances.set(sender, currentStableBalance.add(mintedAmount));
-      this.collateralBalances.set(
-        sender,
-        currentCollateralBalance.add(requiredCollateral)
-      );
+    const currentFeeCollected = UInt224.Safe.fromField(
+      (await this.stableFeeCollected.get()).value.value
+    );
+    await this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
-      this.stableSupply.set(
-        UInt224.Safe.fromField((await this.stableSupply.get()).value.value).add(
-          mintedAmount
-        )
-      );
-      this.collateralSupply.set(
-        UInt224.Safe.fromField(
-          (await this.collateralSupply.get()).value.value
-        ).add(requiredCollateral)
-      );
+    const currentStableBalance =
+      UInt224.Safe.fromField(
+        (await this.stableBalances.get(sender)).value.value
+      ) || UInt224.from(0);
+    const currentCollateralBalance =
+      UInt224.Safe.fromField(
+        (await this.collateralBalances.get(sender)).value.value
+      ) || UInt224.from(0);
 
-      return Bool(true);
-    }
-    return Bool(false);
+    this.stableBalances.set(sender, currentStableBalance.add(mintedAmount));
+    this.collateralBalances.set(
+      sender,
+      currentCollateralBalance.add(requiredCollateral)
+    );
+
+    this.stableSupply.set(
+      UInt224.Safe.fromField((await this.stableSupply.get()).value.value).add(
+        mintedAmount
+      )
+    );
+    this.collateralSupply.set(
+      UInt224.Safe.fromField(
+        (await this.collateralSupply.get()).value.value
+      ).add(requiredCollateral)
+    );
+
+    this.lastMintedAtBlock.set(sender, this.network.block.height);
+
+    return Bool(true);
   }
 
   @runtimeMethod() public async burn(stablecoinAmount: UInt224): Promise<Bool> {
@@ -397,6 +412,12 @@ export class msUSD extends RuntimeModule<StableConfig> {
       ) || UInt224.from(0);
 
     currentBalance.assertGreaterThanOrEqual(stablecoinAmount);
+
+    assert(
+      UInt64.fromValue(this.network.block.height)
+        .value.sub((await this.lastMintedAtBlock.get(sender)).value.value)
+        .greaterThan(Field.from(1296000)) //15 days
+    );
 
     const fee = stablecoinAmount
       .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
@@ -442,10 +463,104 @@ export class msUSD extends RuntimeModule<StableConfig> {
     return Bool(true);
   }
 
-  @runtimeMethod() public async transfer(
-    to: PublicKey,
-    amount: UInt224
-  ): Promise<boolean> {
-    return true;
+  @runtimeMethod()
+  public async transfer(to: PublicKey, amount: UInt224): Promise<Bool> {
+    // Check if the system is locked
+    (await this.systemLocked.get()).value.assertNotEquals(Field.from(1));
+
+    const sender = this.transaction.sender.value;
+
+    // Get sender's current balance
+    const senderBalance =
+      UInt224.Safe.fromField(
+        (await this.stableBalances.get(sender)).value.value
+      ) || UInt224.from(0);
+
+    // Ensure sender has sufficient balance
+    senderBalance.assertGreaterThanOrEqual(amount);
+
+    // Get recipient's current balance
+    const recipientBalance =
+      UInt224.Safe.fromField((await this.stableBalances.get(to)).value.value) ||
+      UInt224.from(0);
+
+    // Calculate fee
+    const fee = amount
+      .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
+      .div(UInt224.from(1e18));
+
+    // Calculate amount after fee
+    const amountAfterFee = amount.sub(fee);
+
+    // Update sender's balance
+    this.stableBalances.set(sender, senderBalance.sub(amount));
+
+    // Update recipient's balance
+    this.stableBalances.set(to, recipientBalance.add(amountAfterFee));
+
+    // Update fee collection
+    const currentFeeCollected = UInt224.Safe.fromField(
+      (await this.stableFeeCollected.get()).value.value
+    );
+    this.stableFeeCollected.set(currentFeeCollected.add(fee));
+
+    // Return success
+    return Bool(true);
+  }
+
+  // / IN CASES OF DEPEGS
+  @runtimeMethod() public async stabilize(): Promise<void> {
+    const marketPrice = await this.getStablePrice();
+    const isLower = marketPrice.lessThan(UInt224.from(95e17));
+    const isHigher = marketPrice.greaterThan(UInt224.from(105e16));
+
+    await this.stabilizeLowPrice(isLower);
+    // TODO RN
+    // await this.stabilizeHighPrice(isHigher);
+  }
+
+  @runtimeMethod() private async stabilizeLowPrice(
+    isLower: Bool
+  ): Promise<void> {
+    const poolStable = (await this.stabilityPoolStable.get()).value.value;
+    const factor = Field.from(
+      UInt224.Safe.fromField((await this.stableSupply.get()).value.value)
+        .div(UInt224.from(10))
+        .toBigInt()
+    );
+
+    /// The pool of stablecoins is emptied and the same is done to the supply that is equal amounts removed.
+    const burnAmount = Provable.if(
+      poolStable.lessThanOrEqual(factor),
+      poolStable,
+      factor
+    );
+
+    this.stableSupply.set(
+      UInt224.Safe.fromField(
+        (await this.stableSupply.get()).value.value.sub(burnAmount)
+      )
+    );
+    this.stabilityPoolStable.set(
+      UInt224.Safe.fromField(
+        (await this.stabilityPoolStable.get()).value.value.sub(burnAmount)
+      )
+    );
+
+    const priceDeviation = UInt224.from(1e18).sub(await this.getStablePrice());
+    const dynamicRewardRate = UInt224.Safe.fromField(
+      (await this.baseRewardRate.get()).value.value
+    ).add(
+      UInt224.Safe.fromField((await this.baseRewardRate.get()).value.value)
+        .mul(priceDeviation)
+        .div(BigInt(1e18))
+    );
+    const rewardAmount =
+      UInt224.Safe.fromField(burnAmount).mul(dynamicRewardRate);
+    this.rewardPool.set(
+      UInt224.Safe.fromField((await this.rewardPool.get()).value.value).add(
+        rewardAmount
+      )
+    );
   }
 }
