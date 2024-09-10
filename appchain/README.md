@@ -16,6 +16,7 @@ The monorepo contains 1 package and 1 app:
 - nvm
 
 For running with persistance / deploying on a server
+
 - docker `>= 24.0`
 - docker-compose `>= 2.22.0`
 
@@ -38,8 +39,9 @@ The starter-kit offers different environments to run you appchain.
 You can use those environments to configure the mode of operation for your appchain depending on which stage of development you are in.
 
 The starter kit comes with a set of pre-configured environments:
+
 - `inmemory`: Runs everything in-memory without persisting the data. Useful for early stages of runtime development.
-- `development`: Runs the sequencer locally and persists all state in databases running in docker. 
+- `development`: Runs the sequencer locally and persists all state in databases running in docker.
 - `sovereign`: Runs your appchain fully in docker (except the UI) for testnet deployments without settlement.
 
 Every command you execute should follow this pattern:
@@ -60,12 +62,13 @@ pnpm env:inmemory dev --filter web
 pnpm env:inmemory dev --filter chain
 ```
 
-> Be aware, the dev command will automatically restart your application when your sources change. 
+> Be aware, the dev command will automatically restart your application when your sources change.
 > If you don't want that, you can alternatively use `pnpm run build` and `pnpm run start`
 
 Navigate to `localhost:3000` to see the example UI, or to `localhost:8080/graphql` to see the GQL interface of the locally running sequencer.
 
 ### Running tests
+
 ```zsh
 # run and watch tests for the `chain` package
 pnpm run test --filter=chain -- --watchAll
@@ -95,7 +98,7 @@ pnpm env:development dev --filter web
 
 ### Deploying to a server
 
-When deploying to a server, you should push your code along with your forked starter-kit to some repository, 
+When deploying to a server, you should push your code along with your forked starter-kit to some repository,
 then clone it on your remote server and execute it.
 
 ```zsh
@@ -108,6 +111,7 @@ UI will be accessible at `https://localhost` and GQL inspector will be available
 #### Configuration
 
 Go to `docker/proxy/Caddyfile` and replace the `*` matcher with your domain.
+
 ```
 yourdomain.com {
     ...

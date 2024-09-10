@@ -32,7 +32,7 @@ describe("msUSD", () => {
     ms = appChain.runtime.resolve("msUSD");
 
     const tx = await appChain.transaction(alice, async () => {
-      await ms.start(
+      await ms.init(
         alice,
         UInt224.from("150000000000000000000"),
         UInt224.from("5000000000000000"),

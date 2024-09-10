@@ -60,9 +60,8 @@ export class msUSD extends RuntimeModule<StableConfig> {
   @state() public baseRewardRate = State.from(UInt224);
 
   /// SETTER METHODS ==============================================
-  /// @param toSetRatio - Default is 15-
 
-  @runtimeMethod() public async start(
+  @runtimeMethod() public async init(
     _circuitsDao: PublicKey,
     _ratio: UInt224, /// 150% == 15e19
     _fee: UInt224, /// 0.05% == 5e16
@@ -96,7 +95,6 @@ export class msUSD extends RuntimeModule<StableConfig> {
     this.emergencyCollateralAmount.set(zero);
     this.emergencyStableAmount.set(zero);
   }
-
   @runtimeMethod() public async setDAO(
     updatedMultiSig: PublicKey
   ): Promise<void> {
