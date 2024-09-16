@@ -1,3 +1,5 @@
+# ====================== CODE IS LAW ======================
+
 # POC of Overcollateralized Stablecoin Appchain Module - msUSD - For Mina Protcol
 
 ### Capabilities
@@ -67,8 +69,12 @@ Centralization Risks: The reliance on CircuitsDAO for price updates and the abil
 While we did construct a POC, we were unable to test the implementation at all and would probably require a lot of fine tuning before its usable.
 We sincerely apologize we couldn't work out the testing properly due to some technical difficulties and a short window for hacking it together.
 
-# Thank you.
+# +++++++++++ TODOs
 
-We thank ETHGlobal for this opportunity and pushing all of us to our better version capable of amazing things.
-
-# ==========================================================================================
+1. Unit testing.
+2. Implementing an L1 equivalent smart contract (since Protokit L1 <-> L2 doesn't exist atm).
+3. Establish the parent CircuitsDAO. The Role of this DAO would be for emergency locks/unlocks handled by public voting where 50% of the vote will be alloted to Mina Foundation at the time of conceiving.
+4. Integrate [Doot](https://doot.foundation) to get latest price information about the collateral - MINA.
+5. Security Audits. Probably Extropy.io.
+6. Public deployment - To test the resiliance of the product. First MVP to be launched on Devnet with Compensation.
+7. If all goes well -> Live on Mainnet.

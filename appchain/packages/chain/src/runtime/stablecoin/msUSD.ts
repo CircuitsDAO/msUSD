@@ -79,29 +79,30 @@ export class msUSD extends RuntimeModule<StableConfig> {
     assert(_fee.greaterThan(zero));
     assert(_decimals.greaterThan(zero));
 
-    this.CircuitsDAO.set(this.transaction.sender.value);
-    this.collateralRatio.set(UInt224.from(15e19));
-    this.decimals.set(UInt224.from(1e18));
-    this.fee.set(UInt224.from(5e16));
-    this.baseRewardRate.set(UInt224.from(5e16));
+    await this.CircuitsDAO.set(this.transaction.sender.value);
+    await this.collateralRatio.set(UInt224.from(15e19));
+    await this.decimals.set(UInt224.from(1e18));
+    await this.fee.set(UInt224.from(5e16));
+    await this.baseRewardRate.set(UInt224.from(5e16));
 
-    this.systemLocked.set(Field.from(0));
-    this.stableSupply.set(zero);
-    this.collateralSupply.set(zero);
-    this.stableFeeCollected.set(zero);
-    this.collateralFeeCollected.set(zero);
-    this.treasuryStableAmount.set(zero);
-    this.treasuryCollateralAmount.set(zero);
-    this.emergencyCollateralAmount.set(zero);
-    this.emergencyStableAmount.set(zero);
+    await this.systemLocked.set(Field.from(0));
+    await this.stableSupply.set(zero);
+    await this.collateralSupply.set(zero);
+    await this.stableFeeCollected.set(zero);
+    await this.collateralFeeCollected.set(zero);
+    await this.treasuryStableAmount.set(zero);
+    await this.treasuryCollateralAmount.set(zero);
+    await this.emergencyCollateralAmount.set(zero);
+    await this.emergencyStableAmount.set(zero);
   }
+
   @runtimeMethod() public async setDAO(
     updatedMultiSig: PublicKey
   ): Promise<void> {
     assert((await this.CircuitsDAO.get()).isSome.not());
     assert(updatedMultiSig.isEmpty().not());
 
-    this.CircuitsDAO.set(updatedMultiSig);
+    await this.CircuitsDAO.set(updatedMultiSig);
   }
 
   /// UPDATE METHODS ==============================================
@@ -118,7 +119,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         .not()
     );
 
-    this.collateralRatio.set(ratio);
+    await this.collateralRatio.set(ratio);
   }
 
   @runtimeMethod() public async updateCollateralPrice(
@@ -128,7 +129,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       this.transaction.sender.value.equals((await this.CircuitsDAO.get()).value)
     );
 
-    this.collateralPrice.set(price);
+    await this.collateralPrice.set(price);
   }
 
   @runtimeMethod()
@@ -157,10 +158,10 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const currentTreasuryCollateral = UInt224.Safe.fromField(
       (await this.treasuryCollateralAmount.get()).value.value
     );
-    this.treasuryStableAmount.set(
+    await this.treasuryStableAmount.set(
       currentTreasuryStable.add(treasuryStableShare)
     );
-    this.treasuryCollateralAmount.set(
+    await this.treasuryCollateralAmount.set(
       currentTreasuryCollateral.add(treasuryCollateralShare)
     );
 
@@ -170,15 +171,15 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const currentEmergencyCollateral = UInt224.Safe.fromField(
       (await this.emergencyCollateralAmount.get()).value.value
     );
-    this.emergencyStableAmount.set(
+    await this.emergencyStableAmount.set(
       currentEmergencyStable.add(emergencyStableShare)
     );
-    this.emergencyCollateralAmount.set(
+    await this.emergencyCollateralAmount.set(
       currentEmergencyCollateral.add(emergencyCollateralShare)
     );
 
-    this.stableFeeCollected.set(UInt224.from(0));
-    this.collateralFeeCollected.set(UInt224.from(0));
+    await this.stableFeeCollected.set(UInt224.from(0));
+    await this.collateralFeeCollected.set(UInt224.from(0));
   }
 
   /// GETTER METHODS ==============================================
@@ -323,7 +324,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       )
     );
 
-    this.systemLocked.set(newLockedState);
+    await this.systemLocked.set(newLockedState);
   }
 
   /// MINT / BURNS ============================================
@@ -371,24 +372,27 @@ export class msUSD extends RuntimeModule<StableConfig> {
         (await this.collateralBalances.get(sender)).value.value
       ) || UInt224.from(0);
 
-    this.stableBalances.set(sender, currentStableBalance.add(mintedAmount));
-    this.collateralBalances.set(
+    await this.stableBalances.set(
+      sender,
+      currentStableBalance.add(mintedAmount)
+    );
+    await this.collateralBalances.set(
       sender,
       currentCollateralBalance.add(requiredCollateral)
     );
 
-    this.stableSupply.set(
+    await this.stableSupply.set(
       UInt224.Safe.fromField((await this.stableSupply.get()).value.value).add(
         mintedAmount
       )
     );
-    this.collateralSupply.set(
+    await this.collateralSupply.set(
       UInt224.Safe.fromField(
         (await this.collateralSupply.get()).value.value
       ).add(requiredCollateral)
     );
 
-    this.lastMintedAtBlock.set(sender, this.network.block.height);
+    await this.lastMintedAtBlock.set(sender, await this.network.block.height);
 
     return Bool(true);
   }
@@ -415,16 +419,16 @@ export class msUSD extends RuntimeModule<StableConfig> {
       .mul(UInt224.Safe.fromField((await this.fee.get()).value.value))
       .div(1e18);
 
-    this.stableBalances.set(sender, currentBalance.sub(stablecoinAmount));
+    await this.stableBalances.set(sender, currentBalance.sub(stablecoinAmount));
     const currentSupply = UInt224.Safe.fromField(
       (await this.stableSupply.get()).value.value
     );
 
-    this.stableSupply.set(currentSupply.sub(stablecoinAmount.sub(fee)));
+    await this.stableSupply.set(currentSupply.sub(stablecoinAmount.sub(fee)));
     const currentFeeCollected = UInt224.Safe.fromField(
       (await this.stableFeeCollected.get()).value.value
     );
-    this.stableFeeCollected.set(currentFeeCollected.add(fee));
+    await this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
     const [toReleaseCollateral, toHoldBack] =
       await this.getReleasableCollateral(stablecoinAmount, fee);
@@ -433,7 +437,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       UInt224.Safe.fromField(
         (await this.collateralBalances.get(sender)).value.value
       ) || UInt224.from(0);
-    this.collateralBalances.set(
+    await this.collateralBalances.set(
       sender,
       currentCollateralBalance.sub(toReleaseCollateral)
     );
@@ -441,14 +445,14 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const currentCollateralSupply = UInt224.Safe.fromField(
       (await this.collateralSupply.get()).value.value
     );
-    this.collateralSupply.set(
+    await this.collateralSupply.set(
       currentCollateralSupply.sub(toReleaseCollateral.add(toHoldBack))
     );
 
     const currentCollateralFeeCollected = UInt224.Safe.fromField(
       (await this.collateralFeeCollected.get()).value.value
     );
-    this.collateralFeeCollected.set(
+    await this.collateralFeeCollected.set(
       currentCollateralFeeCollected.add(toHoldBack)
     );
 
@@ -485,16 +489,16 @@ export class msUSD extends RuntimeModule<StableConfig> {
     const amountAfterFee = amount.sub(fee);
 
     // Update sender's balance
-    this.stableBalances.set(sender, senderBalance.sub(amount));
+    await this.stableBalances.set(sender, senderBalance.sub(amount));
 
     // Update recipient's balance
-    this.stableBalances.set(to, recipientBalance.add(amountAfterFee));
+    await this.stableBalances.set(to, recipientBalance.add(amountAfterFee));
 
     // Update fee collection
     const currentFeeCollected = UInt224.Safe.fromField(
       (await this.stableFeeCollected.get()).value.value
     );
-    this.stableFeeCollected.set(currentFeeCollected.add(fee));
+    await this.stableFeeCollected.set(currentFeeCollected.add(fee));
 
     // Return success
     return Bool(true);
@@ -556,7 +560,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       )
     );
 
-    this.stableSupply.set(newSupply);
+    await this.stableSupply.set(newSupply);
 
     const newPoolStable = UInt224.Safe.fromField(
       Provable.if(
@@ -566,7 +570,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       )
     );
 
-    this.stabilityPoolStable.set(newPoolStable);
+    await this.stabilityPoolStable.set(newPoolStable);
 
     const newEmergencyCollateral = UInt224.Safe.fromField(
       Provable.if(
@@ -575,7 +579,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         Field.from(emergencyCollateral.toBigInt())
       )
     );
-    this.emergencyCollateralAmount.set(newEmergencyCollateral);
+    await this.emergencyCollateralAmount.set(newEmergencyCollateral);
 
     const newEmergencyStablecoins = UInt224.Safe.fromField(
       Provable.if(
@@ -584,7 +588,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         Field.from(emergencyStablecoins.toBigInt())
       )
     );
-    this.emergencyStableAmount.set(newEmergencyStablecoins);
+    await this.emergencyStableAmount.set(newEmergencyStablecoins);
 
     const newPrice = await this.getStablePrice();
 
@@ -597,7 +601,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       Field(1),
       (await this.systemLocked.get()).value
     );
-    this.systemLocked.set(newLockedState);
+    await this.systemLocked.set(newLockedState);
   }
 
   @runtimeMethod()
@@ -628,7 +632,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       )
     );
 
-    this.stableSupply.set(newStableSupply);
+    await this.stableSupply.set(newStableSupply);
 
     const currentStabilityPoolStable = UInt224.Safe.fromField(
       (await this.stabilityPoolStable.get()).value.value
@@ -640,7 +644,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         Field.from(currentStabilityPoolStable.toBigInt())
       )
     );
-    this.stabilityPoolStable.set(newStabilityPoolStable);
+    await this.stabilityPoolStable.set(newStabilityPoolStable);
 
     const priceDeviation = UInt224.from(1e18).sub(await this.getStablePrice());
     const baseRewardRate = UInt224.Safe.fromField(
@@ -662,7 +666,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
         Field.from(currentRewardPool.toBigInt())
       )
     );
-    this.rewardPool.set(newRewardPool);
+    await this.rewardPool.set(newRewardPool);
   }
 
   @runtimeMethod()
@@ -696,13 +700,13 @@ export class msUSD extends RuntimeModule<StableConfig> {
     );
 
     const newTotalSupply = totalSupply.add(mintAmount);
-    this.stableSupply.set(newTotalSupply);
+    await this.stableSupply.set(newTotalSupply);
 
     const currentStabilityPoolStable = UInt224.Safe.fromField(
       (await this.stabilityPoolStable.get()).value.value
     );
     const newStabilityPoolStable = currentStabilityPoolStable.add(mintAmount);
-    this.stabilityPoolStable.set(newStabilityPoolStable);
+    await this.stabilityPoolStable.set(newStabilityPoolStable);
 
     const marketPrice = await this.getStablePrice();
     const priceDeviation = marketPrice.sub(UInt224.from(1e18));
@@ -719,7 +723,7 @@ export class msUSD extends RuntimeModule<StableConfig> {
       (await this.rewardPool.get()).value.value
     );
     const newRewardPool = currentRewardPool.add(rewardAmount);
-    this.rewardPool.set(newRewardPool);
+    await this.rewardPool.set(newRewardPool);
   }
 
   @runtimeMethod()
@@ -742,12 +746,12 @@ export class msUSD extends RuntimeModule<StableConfig> {
           Field(0)
       );
       const newMinaBalance = currentMinaBalance.add(minaAmount);
-      await this.stabilityPoolMinaBalances.set(sender, newMinaBalance);
+      await await this.stabilityPoolMinaBalances.set(sender, newMinaBalance);
 
       const currentPoolMina = UInt224.Safe.fromField(
         (await this.stabilityPoolMina.get()).value.value
       );
-      await this.stabilityPoolMina.set(currentPoolMina.add(minaAmount));
+      await await this.stabilityPoolMina.set(currentPoolMina.add(minaAmount));
     }
 
     if (stablecoinAmount.greaterThan(UInt224.from(0))) {
